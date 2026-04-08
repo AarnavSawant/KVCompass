@@ -1,0 +1,57 @@
+methods:
+  - name: no_compression
+    kind: none
+    description: Baseline with the standard dynamic KV cache and no compression press.
+
+  - name: snapkv
+    kind: press
+    press_class: SnapKVPress
+    params:
+      window_size: 64
+      kernel_size: 5
+    description: SnapKV scorer-based compression from KVPress.
+
+  - name: expected_attention
+    kind: press
+    press_class: ExpectedAttentionPress
+    params:
+      n_future_positions: 512
+      n_sink: 4
+      use_covariance: true
+      use_vnorm: true
+    description: Expected-attention scoring with future-position estimation.
+
+  - name: adakv_expected
+    kind: press
+    press_class: AdaKVPress
+    params:
+      alpha_safeguard: 0.2
+      nested_press:
+        press_class: ExpectedAttentionPress
+        params:
+          n_future_positions: 512
+          n_sink: 4
+          use_covariance: true
+          use_vnorm: true
+    description: AdaKV wrapper around expected-attention scoring.
+
+  - name: layerwise
+    kind: press
+    press_class: PerLayerCompressionPress
+    params:
+      base_press_class: ExpectedAttentionPress
+      base_press_params:
+        n_future_positions: 256
+        n_sink: 4
+        use_covariance: false
+        use_vnorm: true
+      schedule: linear_decay
+    description: Layerwise compression schedule using expected-attention as the base scorer.
+
+  - name: quant_4bit
+    kind: quantized_cache
+    backend: quanto
+    nbits: 4
+    q_group_size: 1
+    residual_length: 128
+    description: 4-bit quantized KV cache via Transformers QuantizedCache.

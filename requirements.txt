@@ -1,0 +1,10 @@
+kvpress
+optimum-quanto
+pandas
+matplotlib
+PyYAML
+nltk
+bert-score
+rouge
+jieba
+fuzzywuzzy
