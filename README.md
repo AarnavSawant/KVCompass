@@ -131,6 +131,7 @@ python scripts/run_kvpress_benchmark_eval.py \
 - `results/summary/recommendations.csv`: scenario-level recommendations with `best_for_memory`, `best_for_latency`, and `best_balanced`.
 - `results/benchmark_eval/<run>/predictions.csv`: benchmark predictions using the same output shape expected by KVPress's benchmark scorers.
 - `results/benchmark_eval/<run>/metrics.json`: dataset-specific metrics calculated from the vendored KVPress benchmark metric modules.
+- `results/benchmark_eval/<run>/run_stats.json`: benchmark runtime telemetry including total runtime, average latency, throughput, and peak GPU memory when available.
 
 ## Notes and TODOs
 

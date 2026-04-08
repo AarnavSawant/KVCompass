@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import random
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -104,6 +105,18 @@ def _normalize_output(output: Any, multi: bool) -> list[str]:
     return [str(output)]
 
 
+def _reset_gpu_stats(torch_module) -> None:
+    if torch_module.cuda.is_available():
+        torch_module.cuda.empty_cache()
+        torch_module.cuda.reset_peak_memory_stats()
+
+
+def _peak_gpu_memory_mb(torch_module) -> float | None:
+    if not torch_module.cuda.is_available():
+        return None
+    return torch_module.cuda.max_memory_allocated() / (1024**2)
+
+
 def run_benchmark_evaluation(config: BenchmarkConfig) -> tuple[Path, Path]:
     import torch
     from kvpress import DecodingPress, ObservedAttentionPress
@@ -144,10 +157,22 @@ def run_benchmark_evaluation(config: BenchmarkConfig) -> tuple[Path, Path]:
     df["budget"] = config.budget
     df["method"] = config.method
     df["model_name"] = config.model
+    df["latency_seconds"] = None
+    df["throughput_tokens_per_second"] = None
+    df["peak_gpu_memory_mb"] = None
+    df["output_tokens"] = None
+    df["input_tokens"] = None
+
+    total_examples = len(df)
+    total_output_tokens = 0
+    inference_start = time.perf_counter()
+    peak_memory_overall_mb: float | None = None
 
     if isinstance(runtime.press, DecodingPress):
         iterator = df.iterrows()
         for index, row in iterator:
+            _reset_gpu_stats(torch)
+            start = time.perf_counter()
             output = pipeline(
                 row["context"],
                 question=row["question"],
@@ -157,10 +182,30 @@ def run_benchmark_evaluation(config: BenchmarkConfig) -> tuple[Path, Path]:
                 max_new_tokens=config.max_new_tokens or row.get("max_new_tokens", 32),
                 max_context_length=config.max_context_length,
             )
-            df.loc[index, "predicted_answer"] = _normalize_output(output, multi=False)[0]
+            latency = time.perf_counter() - start
+            answer = _normalize_output(output, multi=False)[0]
+            output_tokens = len(tokenizer.encode(answer, add_special_tokens=False))
+            input_tokens = len(tokenizer.encode(row["context"], add_special_tokens=False))
+            peak_memory = _peak_gpu_memory_mb(torch)
+            total_output_tokens += output_tokens
+            if peak_memory is not None:
+                peak_memory_overall_mb = (
+                    peak_memory
+                    if peak_memory_overall_mb is None
+                    else max(peak_memory_overall_mb, peak_memory)
+                )
+
+            df.loc[index, "predicted_answer"] = answer
+            df.loc[index, "latency_seconds"] = latency
+            df.loc[index, "throughput_tokens_per_second"] = output_tokens / latency if latency > 0 else None
+            df.loc[index, "peak_gpu_memory_mb"] = peak_memory
+            df.loc[index, "output_tokens"] = output_tokens
+            df.loc[index, "input_tokens"] = input_tokens
     else:
         grouped = df.groupby("context")
         for context, df_group in grouped:
+            _reset_gpu_stats(torch)
+            start = time.perf_counter()
             output = pipeline(
                 context,
                 questions=df_group["question"].tolist(),
@@ -170,11 +215,51 @@ def run_benchmark_evaluation(config: BenchmarkConfig) -> tuple[Path, Path]:
                 max_new_tokens=config.max_new_tokens or int(df_group["max_new_tokens"].iloc[0]),
                 max_context_length=config.max_context_length,
             )
+            latency = time.perf_counter() - start
             answers = _normalize_output(output, multi=True)
+            peak_memory = _peak_gpu_memory_mb(torch)
+            output_tokens_list = [len(tokenizer.encode(answer, add_special_tokens=False)) for answer in answers]
+            input_tokens = len(tokenizer.encode(context, add_special_tokens=False))
+            total_output_tokens += sum(output_tokens_list)
+            if peak_memory is not None:
+                peak_memory_overall_mb = (
+                    peak_memory
+                    if peak_memory_overall_mb is None
+                    else max(peak_memory_overall_mb, peak_memory)
+                )
+
             df.loc[df_group.index, "predicted_answer"] = answers
+            df.loc[df_group.index, "latency_seconds"] = latency / max(len(df_group), 1)
+            df.loc[df_group.index, "throughput_tokens_per_second"] = (
+                sum(output_tokens_list) / latency if latency > 0 else None
+            )
+            df.loc[df_group.index, "peak_gpu_memory_mb"] = peak_memory
+            df.loc[df_group.index, "output_tokens"] = output_tokens_list
+            df.loc[df_group.index, "input_tokens"] = input_tokens
 
     scorer = get_scorer(config.dataset)
     metrics = scorer(df)
+    total_runtime_seconds = time.perf_counter() - inference_start
+
+    run_stats = {
+        "dataset": config.dataset,
+        "data_dir": config.data_dir,
+        "model": config.model,
+        "method": config.method,
+        "budget": config.budget,
+        "compression_ratio": runtime.compression_ratio,
+        "examples": total_examples,
+        "total_runtime_seconds": total_runtime_seconds,
+        "avg_seconds_per_example": total_runtime_seconds / total_examples if total_examples else None,
+        "examples_per_second": total_examples / total_runtime_seconds if total_runtime_seconds > 0 else None,
+        "total_output_tokens": total_output_tokens,
+        "output_tokens_per_second": total_output_tokens / total_runtime_seconds if total_runtime_seconds > 0 else None,
+        "peak_gpu_memory_mb": peak_memory_overall_mb,
+        "avg_latency_seconds": pd.to_numeric(df["latency_seconds"], errors="coerce").mean(),
+        "avg_throughput_tokens_per_second": pd.to_numeric(
+            df["throughput_tokens_per_second"], errors="coerce"
+        ).mean(),
+    }
 
     output_root = Path(config.output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -192,14 +277,18 @@ def run_benchmark_evaluation(config: BenchmarkConfig) -> tuple[Path, Path]:
 
     predictions_path = run_dir / "predictions.csv"
     metrics_path = run_dir / "metrics.json"
+    run_stats_path = run_dir / "run_stats.json"
     config_path = run_dir / "config.yaml"
 
     df[list(set(df.columns) - {"context"})].to_csv(predictions_path, index=False)
     with metrics_path.open("w", encoding="utf-8") as handle:
         json.dump(metrics, handle, indent=2)
+    with run_stats_path.open("w", encoding="utf-8") as handle:
+        json.dump(run_stats, handle, indent=2)
     with config_path.open("w", encoding="utf-8") as handle:
         yaml.safe_dump(asdict(config), handle, sort_keys=False)
 
     LOGGER.info("Saved predictions to %s", predictions_path)
     LOGGER.info("Saved metrics to %s", metrics_path)
+    LOGGER.info("Saved run stats to %s", run_stats_path)
     return predictions_path, metrics_path
