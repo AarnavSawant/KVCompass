@@ -103,6 +103,21 @@ def build_example(scenario_name: str, context_length: int) -> Example:
             quality_label="contains_reference",
         )
 
+    if scenario_name == "token_limited":
+        answer = "quantum vault"
+        core = (
+            "Secure facility access:\n"
+            f"The emergency override code is {answer}.\n"
+            "Provide the exact code when requested.\n"
+        )
+        context = _repeat_to_length(_make_noise_block("security", 180) + "\n" + core, context_length)
+        return Example(
+            context=context,
+            questions=["What is the emergency override code?"],
+            reference_answer=answer,
+            quality_label="contains_reference",
+        )
+
     raise ValueError(f"Unknown scenario: {scenario_name}")
 
 

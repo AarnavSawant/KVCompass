@@ -26,3 +26,11 @@ scenarios:
     context_lengths: [4096, 8192]
     max_new_tokens: 32
     repeats: 3
+
+  - name: token_limited
+    description: Scenario with strict total token limits (context + generation) to simulate API constraints.
+    budgets: [1.0, 0.75, 0.5, 0.25]
+    context_lengths: [2048, 4096]
+    max_new_tokens: 16
+    max_total_tokens: 4096
+    repeats: 1

@@ -186,6 +186,20 @@ def run_evaluation(
                         context_length,
                     )
                     try:
+                        max_new_tokens = int(scenario.get("max_new_tokens", 32))
+                        max_total_tokens = scenario.get("max_total_tokens")
+                        if max_total_tokens is not None:
+                            # Adjust context_length to stay within total token limit
+                            effective_context_length = min(int(context_length), max_total_tokens - max_new_tokens)
+                            if effective_context_length <= 0:
+                                LOGGER.warning(
+                                    "Skipping scenario=%s context_length=%s max_total_tokens=%s max_new_tokens=%s: "
+                                    "effective context length would be <= 0",
+                                    scenario_name, context_length, max_total_tokens, max_new_tokens
+                                )
+                                continue
+                            context_length = effective_context_length
+                        
                         runtime = build_method_runtime(
                             method,
                             budget=budget,
@@ -198,7 +212,7 @@ def run_evaluation(
                                 method_runtime=runtime,
                                 scenario_name=scenario_name,
                                 context_length=int(context_length),
-                                max_new_tokens=int(scenario.get("max_new_tokens", 32)),
+                                max_new_tokens=max_new_tokens,
                                 repeats=int(scenario.get("repeats", 1)),
                                 run_name=run_name,
                                 model_name=model_name,

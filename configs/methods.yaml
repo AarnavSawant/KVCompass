@@ -55,3 +55,19 @@ methods:
     q_group_size: 1
     residual_length: 128
     description: 4-bit quantized KV cache via Transformers QuantizedCache.
+  
+  - name: quant_4bit_grouped
+    kind: quantized_cache
+    backend: quanto
+    nbits: 4
+    q_group_size: 64
+    residual_length: 128
+    description: 4-bit quantized KV cache with group size 64 for better quality.
+
+  - name: quant_4bit_hqq
+    kind: quantized_cache
+    backend: hqq
+    nbits: 4
+    q_group_size: 64
+    residual_length: 128
+    description: 4-bit quantized KV cache using HQQ backend.
