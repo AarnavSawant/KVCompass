@@ -55,11 +55,13 @@ def _expand_runs(sweep: dict[str, Any]) -> list[BenchmarkConfig]:
             for budget in budgets_cfg.get(method, default_budgets):
                 runs.append(
                     BenchmarkConfig(
+                        scenario_name=scenario["name"],
                         dataset=scenario["dataset"],
                         data_dir=scenario.get("data_dir"),
                         model=base["model"],
                         method=method,
                         budget=float(budget),
+                        task_prefixes=scenario.get("task_prefixes"),
                         fraction=float(scenario.get("fraction", 1.0)),
                         max_new_tokens=scenario.get("max_new_tokens"),
                         max_context_length=scenario.get("max_context_length"),
@@ -93,7 +95,7 @@ def run_benchmark_sweep(config_path: str | Path) -> SweepArtifacts:
         torch_dtype=sweep.get("torch_dtype", "auto"),
     )
 
-    dataset_cache: dict[tuple[str, str | None, float, int | None], Any] = {}
+    dataset_cache: dict[tuple[str, str | None, tuple[str, ...], float, int | None], Any] = {}
     summary_rows: list[dict[str, Any]] = []
 
     for run in runs:
@@ -106,7 +108,13 @@ def run_benchmark_sweep(config_path: str | Path) -> SweepArtifacts:
         runtime.model = model
         runtime.tokenizer = tokenizer
 
-        cache_key = (run.dataset, run.data_dir, run.fraction, run.max_context_length)
+        cache_key = (
+            run.dataset,
+            run.data_dir,
+            tuple(run.task_prefixes or []),
+            run.fraction,
+            run.max_context_length,
+        )
         if cache_key not in dataset_cache:
             base_df = _load_benchmark_df(run, tokenizer)
             dataset_cache[cache_key] = base_df
@@ -127,8 +135,10 @@ def run_benchmark_sweep(config_path: str | Path) -> SweepArtifacts:
         )
         summary_rows.append(
             {
+                "scenario_name": run.scenario_name or "",
                 "dataset": run.dataset,
                 "data_dir": run.data_dir or "",
+                "task_prefixes": ",".join(run.task_prefixes or []),
                 "model": run.model,
                 "method": run.method,
                 "budget": run.budget,
