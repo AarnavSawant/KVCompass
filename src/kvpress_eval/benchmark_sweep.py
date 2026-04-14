@@ -28,6 +28,15 @@ class SweepArtifacts:
     run_count: int
 
 
+def _write_summary_csv(summary_csv: Path, summary_rows: list[dict[str, Any]]) -> None:
+    summary_csv.parent.mkdir(parents=True, exist_ok=True)
+    with summary_csv.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(summary_rows[0].keys()) if summary_rows else ["dataset"])
+        writer.writeheader()
+        for row in summary_rows:
+            writer.writerow(row)
+
+
 def load_sweep_config(path: str | Path) -> dict[str, Any]:
     with Path(path).open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
@@ -97,6 +106,10 @@ def run_benchmark_sweep(config_path: str | Path) -> SweepArtifacts:
 
     dataset_cache: dict[tuple[str, str | None, tuple[str, ...], float, int | None], Any] = {}
     summary_rows: list[dict[str, Any]] = []
+    output_dir = Path(sweep.get("output_dir", "results/benchmark_eval"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    sweep_name = sweep.get("name", "benchmark_sweep")
+    summary_csv = output_dir / f"{sweep_name}__summary.csv"
 
     for run in runs:
         runtime = build_method_runtime(
@@ -149,14 +162,7 @@ def run_benchmark_sweep(config_path: str | Path) -> SweepArtifacts:
                 "peak_gpu_memory_mb": run_stats.get("peak_gpu_memory_mb"),
             }
         )
+        _write_summary_csv(summary_csv, summary_rows)
 
-    output_dir = Path(sweep.get("output_dir", "results/benchmark_eval"))
-    output_dir.mkdir(parents=True, exist_ok=True)
-    sweep_name = sweep.get("name", "benchmark_sweep")
-    summary_csv = output_dir / f"{sweep_name}__summary.csv"
-    with summary_csv.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(summary_rows[0].keys()) if summary_rows else ["dataset"])
-        writer.writeheader()
-        for row in summary_rows:
-            writer.writerow(row)
+    _write_summary_csv(summary_csv, summary_rows)
     return SweepArtifacts(summary_csv=summary_csv, run_count=len(summary_rows))
