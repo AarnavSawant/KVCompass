@@ -10,8 +10,6 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from kvpress_eval.benchmark_eval import BenchmarkConfig, run_benchmark_evaluation
-
 
 def resolve_path(value: str | Path) -> Path:
     path = Path(value)
@@ -40,6 +38,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    from kvpress_eval.benchmark_eval import BenchmarkConfig, run_benchmark_evaluation
+
     args = parse_args()
     config = BenchmarkConfig(
         dataset=args.dataset,
