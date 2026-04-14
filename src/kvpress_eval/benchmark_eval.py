@@ -18,6 +18,11 @@ from .config import get_method_configs
 LOGGER = logging.getLogger(__name__)
 
 
+class _SequentialPipelineWarningFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "You seem to be using the pipelines sequentially on GPU" not in record.getMessage()
+
+
 @dataclass
 class BenchmarkConfig:
     dataset: str
@@ -43,6 +48,7 @@ def _setup_logging(verbose: bool) -> None:
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
+    logging.getLogger("transformers.pipelines.base").addFilter(_SequentialPipelineWarningFilter())
 
 
 def _set_seed(seed: int) -> None:
@@ -117,41 +123,18 @@ def _peak_gpu_memory_mb(torch_module) -> float | None:
     return torch_module.cuda.max_memory_allocated() / (1024**2)
 
 
-def run_benchmark_evaluation(config: BenchmarkConfig) -> tuple[Path, Path]:
-    import torch
-    from kvpress import DecodingPress, ObservedAttentionPress
+def _execute_benchmark_dataframe(
+    *,
+    df: pd.DataFrame,
+    config: BenchmarkConfig,
+    pipeline,
+    tokenizer,
+    runtime,
+    torch_module,
+) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
+    from kvpress import DecodingPress
 
-    from .compat import apply_kvpress_compat_patches
-    from .methods import build_method_runtime
-    from .runner import load_model_bundle
-
-    _setup_logging(config.verbose)
-    _set_seed(config.seed)
-    apply_kvpress_compat_patches()
-
-    methods = {m["name"]: m for m in get_method_configs(config.methods_config_path)}
-    if config.method not in methods:
-        raise ValueError(f"Method '{config.method}' not found in {config.methods_config_path}")
-
-    model, tokenizer, pipeline = load_model_bundle(
-        model_name=config.model,
-        device=config.device,
-        torch_dtype=config.torch_dtype,
-    )
-    runtime = build_method_runtime(
-        methods[config.method],
-        budget=config.budget,
-        model_config=model.config,
-        model_layer_count=len(model.model.layers),
-    )
-    runtime.model = model
-    runtime.tokenizer = tokenizer
-
-    if isinstance(runtime.press, ObservedAttentionPress):
-        raise RuntimeError("ObservedAttentionPress benchmark mode is not yet wired in this project.")
-
-    df = _load_benchmark_df(config, tokenizer)
-    df = _prepare_df(df, config, runtime)
+    df = df.copy()
     df["predicted_answer"] = None
     df["compression_ratio"] = runtime.compression_ratio
     df["budget"] = config.budget
@@ -171,7 +154,7 @@ def run_benchmark_evaluation(config: BenchmarkConfig) -> tuple[Path, Path]:
     if isinstance(runtime.press, DecodingPress):
         iterator = df.iterrows()
         for index, row in iterator:
-            _reset_gpu_stats(torch)
+            _reset_gpu_stats(torch_module)
             start = time.perf_counter()
             output = pipeline(
                 row["context"],
@@ -186,7 +169,7 @@ def run_benchmark_evaluation(config: BenchmarkConfig) -> tuple[Path, Path]:
             answer = _normalize_output(output, multi=False)[0]
             output_tokens = len(tokenizer.encode(answer, add_special_tokens=False))
             input_tokens = len(tokenizer.encode(row["context"], add_special_tokens=False))
-            peak_memory = _peak_gpu_memory_mb(torch)
+            peak_memory = _peak_gpu_memory_mb(torch_module)
             total_output_tokens += output_tokens
             if peak_memory is not None:
                 peak_memory_overall_mb = (
@@ -202,9 +185,9 @@ def run_benchmark_evaluation(config: BenchmarkConfig) -> tuple[Path, Path]:
             df.loc[index, "output_tokens"] = output_tokens
             df.loc[index, "input_tokens"] = input_tokens
     else:
-        grouped = df.groupby("context")
+        grouped = df.groupby("context", sort=False)
         for context, df_group in grouped:
-            _reset_gpu_stats(torch)
+            _reset_gpu_stats(torch_module)
             start = time.perf_counter()
             output = pipeline(
                 context,
@@ -217,7 +200,7 @@ def run_benchmark_evaluation(config: BenchmarkConfig) -> tuple[Path, Path]:
             )
             latency = time.perf_counter() - start
             answers = _normalize_output(output, multi=True)
-            peak_memory = _peak_gpu_memory_mb(torch)
+            peak_memory = _peak_gpu_memory_mb(torch_module)
             output_tokens_list = [len(tokenizer.encode(answer, add_special_tokens=False)) for answer in answers]
             input_tokens = len(tokenizer.encode(context, add_special_tokens=False))
             total_output_tokens += sum(output_tokens_list)
@@ -260,7 +243,12 @@ def run_benchmark_evaluation(config: BenchmarkConfig) -> tuple[Path, Path]:
             df["throughput_tokens_per_second"], errors="coerce"
         ).mean(),
     }
+    return df, metrics, run_stats
 
+
+def _save_benchmark_outputs(
+    *, df: pd.DataFrame, metrics: dict[str, Any], run_stats: dict[str, Any], config: BenchmarkConfig
+) -> tuple[Path, Path]:
     output_root = Path(config.output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
     run_name = "__".join(
@@ -292,3 +280,48 @@ def run_benchmark_evaluation(config: BenchmarkConfig) -> tuple[Path, Path]:
     LOGGER.info("Saved metrics to %s", metrics_path)
     LOGGER.info("Saved run stats to %s", run_stats_path)
     return predictions_path, metrics_path
+
+
+def run_benchmark_evaluation(config: BenchmarkConfig) -> tuple[Path, Path]:
+    import torch
+    from kvpress import DecodingPress, ObservedAttentionPress
+
+    from .compat import apply_kvpress_compat_patches
+    from .methods import build_method_runtime
+    from .runner import load_model_bundle
+
+    _setup_logging(config.verbose)
+    _set_seed(config.seed)
+    apply_kvpress_compat_patches()
+
+    methods = {m["name"]: m for m in get_method_configs(config.methods_config_path)}
+    if config.method not in methods:
+        raise ValueError(f"Method '{config.method}' not found in {config.methods_config_path}")
+
+    model, tokenizer, pipeline = load_model_bundle(
+        model_name=config.model,
+        device=config.device,
+        torch_dtype=config.torch_dtype,
+    )
+    runtime = build_method_runtime(
+        methods[config.method],
+        budget=config.budget,
+        model_config=model.config,
+        model_layer_count=len(model.model.layers),
+    )
+    runtime.model = model
+    runtime.tokenizer = tokenizer
+
+    if isinstance(runtime.press, ObservedAttentionPress):
+        raise RuntimeError("ObservedAttentionPress benchmark mode is not yet wired in this project.")
+
+    df = _prepare_df(_load_benchmark_df(config, tokenizer), config, runtime)
+    df, metrics, run_stats = _execute_benchmark_dataframe(
+        df=df,
+        config=config,
+        pipeline=pipeline,
+        tokenizer=tokenizer,
+        runtime=runtime,
+        torch_module=torch,
+    )
+    return _save_benchmark_outputs(df=df, metrics=metrics, run_stats=run_stats, config=config)

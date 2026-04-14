@@ -123,6 +123,13 @@ python scripts/run_kvpress_benchmark_eval.py \
   --budget 0.5
 ```
 
+Run a whole benchmark sweep from YAML:
+
+```bash
+python scripts/run_kvpress_benchmark_sweep.py \
+  --config configs/benchmark_sweeps.yaml
+```
+
 ## Outputs
 
 - `results/raw/*.csv`: one row per scenario/method/budget/context-length/repeat run. Includes latency, throughput, peak GPU memory when available, quality score, generated text, and any error message.
@@ -132,11 +139,13 @@ python scripts/run_kvpress_benchmark_eval.py \
 - `results/benchmark_eval/<run>/predictions.csv`: benchmark predictions using the same output shape expected by KVPress's benchmark scorers.
 - `results/benchmark_eval/<run>/metrics.json`: dataset-specific metrics calculated from the vendored KVPress benchmark metric modules.
 - `results/benchmark_eval/<run>/run_stats.json`: benchmark runtime telemetry including total runtime, average latency, throughput, and peak GPU memory when available.
+- `results/benchmark_eval/*__summary.csv`: one-row-per-run sweep summary for config-driven benchmark sweeps.
 
 ## Notes and TODOs
 
 - The execution path is real KVPress: methods instantiate actual KVPress press classes and run through `KVPressTextGenerationPipeline`.
 - The built-in workloads are lightweight prompt generators in `src/kvpress_eval/scenarios.py`, not benchmark datasets yet. They are intended as clean placeholders so the package runs before you integrate external benchmarks.
 - For real benchmark metrics, use `scripts/run_kvpress_benchmark_eval.py`, which vendors KVPress's benchmark metric code from the GitHub repo and evaluates against the same benchmark dataset identifiers used there.
+- If you want one command to run a matrix of methods and budgets, define scenarios in `configs/benchmark_sweeps.yaml` and use `scripts/run_kvpress_benchmark_sweep.py`. The sweep runner reuses the loaded model across runs to reduce overhead.
 - `quant_4bit` depends on the configured quantized cache backend (`quanto` by default). If the backend is missing in your environment, the framework records an error row instead of crashing the full sweep.
 - Quality scoring is intentionally simple for now: it checks whether the expected answer appears in the generated text. Replacing this with benchmark-specific scoring is the next natural extension point.

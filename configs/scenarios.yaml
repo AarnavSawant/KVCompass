@@ -26,3 +26,10 @@ scenarios:
     context_lengths: [4096, 8192]
     max_new_tokens: 32
     repeats: 3
+
+  - name: memory_tight
+    description: Aggressive-memory setting to compare which methods hold up under tighter compression.
+    budgets: [0.25]
+    context_lengths: [4096, 8192]
+    max_new_tokens: 32
+    repeats: 1

@@ -35,6 +35,41 @@ methods:
           use_vnorm: true
     description: AdaKV wrapper around expected-attention scoring.
 
+  - name: pyramidkv
+    kind: press
+    press_class: PyramidKVPress
+    params:
+      window_size: 64
+      kernel_size: 5
+      beta: 20
+    description: PyramidKV layer-adaptive compression built on top of SnapKV scoring.
+
+  - name: streaming_llm
+    kind: press
+    press_class: StreamingLLMPress
+    params:
+      n_sink: 4
+    description: StreamingLLM sliding-window compression with preserved sink tokens.
+
+  - name: knorm
+    kind: press
+    press_class: KnormPress
+    params: {}
+    description: Simple key-norm pruning baseline.
+
+  - name: tova
+    kind: press
+    press_class: TOVAPress
+    params: {}
+    description: TOVA last-token attention scoring for KV retention.
+
+  - name: random
+    kind: press
+    press_class: RandomPress
+    params:
+      seed: 42
+    description: Random compression baseline for comparison.
+
   - name: layerwise
     kind: press
     press_class: PerLayerCompressionPress
