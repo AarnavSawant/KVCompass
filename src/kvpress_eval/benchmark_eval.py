@@ -28,8 +28,10 @@ class BenchmarkConfig:
     dataset: str
     model: str
     method: str
+    scenario_name: str | None = None
     budget: float = 0.5
     data_dir: str | None = None
+    task_prefixes: list[str] | None = None
     fraction: float = 1.0
     max_new_tokens: int | None = None
     max_context_length: int | None = None
@@ -69,6 +71,16 @@ def _load_benchmark_df(config: BenchmarkConfig, tokenizer) -> pd.DataFrame:
         data_dir=str(config.data_dir) if config.data_dir else None,
         split="test",
     ).to_pandas()
+
+    if config.task_prefixes:
+        if "task" not in df.columns:
+            raise ValueError(f"Dataset '{config.dataset}' does not expose a 'task' column for task_prefix filtering")
+        prefixes = tuple(config.task_prefixes)
+        df = df[df["task"].astype(str).str.startswith(prefixes)].reset_index(drop=True)
+        if df.empty:
+            raise ValueError(
+                f"No rows matched task prefixes {config.task_prefixes} for dataset '{config.dataset}'"
+            )
 
     if config.fraction < 1.0:
         df = df.sample(frac=config.fraction, random_state=config.seed)
@@ -225,8 +237,10 @@ def _execute_benchmark_dataframe(
     total_runtime_seconds = time.perf_counter() - inference_start
 
     run_stats = {
+        "scenario_name": config.scenario_name,
         "dataset": config.dataset,
         "data_dir": config.data_dir,
+        "task_prefixes": config.task_prefixes,
         "model": config.model,
         "method": config.method,
         "budget": config.budget,
@@ -252,13 +266,14 @@ def _save_benchmark_outputs(
     output_root = Path(config.output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
     run_name = "__".join(
-        [
+        [part for part in [
+            config.scenario_name,
             config.dataset,
             str(config.data_dir or ""),
             config.model.replace("/", "--"),
             config.method,
             f"budget{config.budget:.2f}",
-        ]
+        ] if part]
     ).strip("_")
     run_dir = output_root / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
