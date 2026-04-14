@@ -103,6 +103,22 @@ def build_example(scenario_name: str, context_length: int) -> Example:
             quality_label="contains_reference",
         )
 
+    if scenario_name == "memory_tight":
+        answer = "backup relay"
+        core = (
+            "Incident recovery brief:\n"
+            "Primary relay status: unstable.\n"
+            f"Fallback instruction: route all emergency traffic through the {answer}.\n"
+            "Respond with the fallback relay name only.\n"
+        )
+        context = _repeat_to_length(_make_noise_block("memory", 260) + "\n" + core, context_length)
+        return Example(
+            context=context,
+            questions=["Which relay should emergency traffic use as the fallback route?"],
+            reference_answer=answer,
+            quality_label="contains_reference",
+        )
+
     raise ValueError(f"Unknown scenario: {scenario_name}")
 
 
