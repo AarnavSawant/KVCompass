@@ -1,29 +1,102 @@
-# KVPress Evaluation Framework
+# KVCompass
 
-This repository is a lightweight, runnable evaluation package for workload-aware comparison of KV-cache optimization methods using [KVPress](https://github.com/NVIDIA/kvpress) as the execution backbone. The goal is not to invent a new compression technique, but to help answer a practical systems question: when should someone choose one KV-cache optimization strategy over another for a given workload, budget, and context length?
+KVCompass is a notebook-first evaluation project for comparing KV-cache optimization methods on long-context benchmark workloads using [KVPress](https://github.com/NVIDIA/kvpress) as the execution backbone.
 
-The framework reads methods and scenarios from YAML configs, executes scenario x method x budget x context-length sweeps, stores raw measurements to CSV, aggregates them into summary tables, generates plots, and emits a simple recommendation table. The initial workloads use built-in example generators so the package is runnable end to end immediately, with clear hooks for replacing those examples with benchmark datasets later.
+The main entry point is [`KVCompass.ipynb`](./KVCompass.ipynb). The notebook is designed to run in Google Colab, mount Google Drive for persistent storage, pull this repository, install the package, execute config-driven benchmark sweeps, and analyze the resulting metrics with tables and plots.
 
-## Repo Structure
+## What This Project Does
+
+This project answers a practical question:
+
+Which KV-cache optimization method should be used for a given long-context workload when balancing quality, latency, throughput, and memory?
+
+The current notebook evaluates benchmark-backed workloads from the `ruler` dataset and compares methods such as:
+
+- `no_compression`
+- `snapkv`
+- `expected_attention`
+- `knorm`
+- `tova`
+- `streaming_llm`
+
+Across the notebook assignments, these methods are tested on task families including:
+
+- Needle in a haystack
+- Question answering
+- Multi-hop tracing
+- Aggregation
+
+Each run writes per-scenario benchmark artifacts, then the notebook aggregates the summaries and builds presentation-friendly result tables and charts.
+
+## Main Entry Point
+
+The primary workflow is the notebook:
+
+- [`KVCompass.ipynb`](./KVCompass.ipynb)
+
+At a high level, the notebook:
+
+1. Mounts Google Drive.
+2. Clones or refreshes this repository in Colab.
+3. Installs Python dependencies and the local package in editable mode.
+4. Loads a Hugging Face access token from Colab secrets.
+5. Writes temporary benchmark sweep YAML files for each assignment.
+6. Runs benchmark sweeps through `scripts/run_kvpress_benchmark_sweep.py`.
+7. Reads the generated summary CSV files and per-run `metrics.json` files.
+8. Produces leaderboard tables, matrix views, and plots.
+
+## How The Notebook Executes
+
+The notebook uses this runtime path:
+
+```text
+KVCompass.ipynb
+  -> scripts/run_kvpress_benchmark_sweep.py
+    -> src/kvpress_eval/benchmark_sweep.py
+      -> src/kvpress_eval/benchmark_eval.py
+      -> src/kvpress_eval/config.py
+      -> src/kvpress_eval/methods.py
+      -> src/kvpress_eval/runner.py
+      -> src/kvpress_eval/compat.py
+      -> src/kvpress_eval/benchmark_registry.py
+        -> src/kvpress_eval/benchmarks/ruler/calculate_metrics.py
+```
+
+For the current notebook, the benchmark dataset is:
+
+- Hugging Face dataset: `simonjegou/ruler`
+
+The model is configured in the notebook itself. The current default is:
+
+- `Qwen/Qwen2.5-1.5B-Instruct`
+
+## Repository Structure
 
 ```text
 KVCompass/
+├── KVCompass.ipynb
+├── README.md
+├── pyproject.toml
+├── requirements.txt
 ├── configs/
+│   ├── benchmark_sweeps.yaml
 │   ├── methods.yaml
 │   └── scenarios.yaml
-├── results/
-│   ├── plots/
-│   ├── raw/
-│   └── summary/
 ├── scripts/
 │   ├── aggregate_results.py
 │   ├── make_plots.py
 │   ├── make_recommendations.py
 │   ├── run_budget_sweep.py
+│   ├── run_kvpress_benchmark_eval.py
+│   ├── run_kvpress_benchmark_sweep.py
 │   └── run_kvpress_eval.py
 ├── src/
 │   └── kvpress_eval/
 │       ├── aggregate.py
+│       ├── benchmark_eval.py
+│       ├── benchmark_registry.py
+│       ├── benchmark_sweep.py
+│       ├── compat.py
 │       ├── config.py
 │       ├── evaluate.py
 │       ├── io_utils.py
@@ -31,121 +104,215 @@ KVCompass/
 │       ├── plotting.py
 │       ├── recommendations.py
 │       ├── runner.py
-│       └── scenarios.py
-├── pyproject.toml
-├── README.md
-└── requirements.txt
+│       ├── scenarios.py
+│       └── benchmarks/
+└── results/
+    ├── benchmark_eval/
+    ├── plots/
+    ├── raw/
+    └── summary/
 ```
 
-## Install
+## Requirements
 
-Create and activate a Python 3.10+ environment, then install dependencies:
+### Runtime environment
 
-```bash
-cd /Users/aarnavsawant/Documents/CS6675/KVCompass
-source ~/miniconda3/bin/activate kvpress-eval
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m pip install -e .
-```
+The notebook is intended for:
 
-## Configuration
+- Google Colab
+- Python 3.10+
+- GPU-backed runtime recommended
+- Google Drive access for saving outputs
 
-- `configs/methods.yaml`: declares the initial methods:
-  - `no_compression`
-  - `snapkv`
-  - `expected_attention`
-  - `adakv_expected`
-  - `layerwise`
-  - `quant_4bit`
-- `configs/scenarios.yaml`: declares the initial workloads:
-  - `retrieval_long`
-  - `reasoning_long`
-  - `context_sweep`
-  - `prefix_serving`
+### Accounts and access
 
-Budgets map to compression ratio as `compression_ratio = 1 - budget`. The `layerwise` method uses a small per-layer schedule wrapper around `PerLayerCompressionPress`, while `quant_4bit` uses `transformers.QuantizedCache`.
-The default `quant_4bit` backend is `quanto`, so `optimum-quanto` is included as a dependency.
+You will need:
 
-## Run
+- A Hugging Face account
+- A valid Hugging Face token stored in Colab secrets as `HF_TOKEN`
+- Access to the selected model if it is gated
 
-Run one evaluation slice:
+### Python dependencies
 
-```bash
-python scripts/run_kvpress_eval.py \
-  --model meta-llama/Llama-3.2-1B-Instruct \
-  --scenario retrieval_long \
-  --method snapkv \
-  --max-cases 1
-```
+Install from:
 
-Run a broader sweep:
+- [`requirements.txt`](./requirements.txt)
+- editable package install via [`pyproject.toml`](./pyproject.toml)
 
-```bash
-python scripts/run_budget_sweep.py \
-  --model meta-llama/Llama-3.2-1B-Instruct \
-  --scenario retrieval_long \
-  --scenario prefix_serving
-```
+Core dependencies include:
 
-Aggregate raw results:
+- `kvpress`
+- `optimum-quanto`
+- `pandas`
+- `matplotlib`
+- `PyYAML`
+- `nltk`
+- `bert-score`
+- `rouge`
+- `jieba`
+- `fuzzywuzzy`
 
-```bash
-python scripts/aggregate_results.py \
-  --input results/raw/kvpress_eval_YYYYMMDD_HHMMSS.csv \
-  --output results/summary/summary.csv
-```
+Note: the notebook also imports `seaborn` in its later analysis cells, but `seaborn` is not currently listed in `requirements.txt` or `pyproject.toml`.
 
-Generate plots:
+## Setup
 
-```bash
-python scripts/make_plots.py \
-  --input results/raw/kvpress_eval_YYYYMMDD_HHMMSS.csv \
-  --output-dir results/plots
-```
+### Option 1: Run the notebook in Google Colab
 
-Generate recommendations:
+Open [`KVCompass.ipynb`](./KVCompass.ipynb) in Colab and run the cells in order.
 
-```bash
-python scripts/make_recommendations.py \
-  --input results/summary/summary.csv \
-  --output results/summary/recommendations.csv
-```
+The setup cells will:
 
-Run a benchmark with KVPress's repo metrics:
+- mount Google Drive at `/content/drive`
+- clone this repo to `/content/KVCompass` if needed
+- update the checked-out branch
+- install dependencies
+- install the package with `pip install -e .`
 
-```bash
-python scripts/run_kvpress_benchmark_eval.py \
-  --dataset ruler \
-  --data-dir 4096 \
-  --model meta-llama/Meta-Llama-3.1-8B-Instruct \
-  --method snapkv \
-  --budget 0.5
-```
 
-Run a whole benchmark sweep from YAML:
+## Notebook Workflow
 
-```bash
-python scripts/run_kvpress_benchmark_sweep.py \
-  --config configs/benchmark_sweeps.yaml
-```
+The notebook is organized around assignment-specific benchmark sweeps.
+
+For each assignment, it:
+
+1. Builds a temporary YAML config inside `configs/`.
+2. Selects a benchmark dataset, context size, task prefixes, methods, and budgets.
+3. Runs the sweep with `scripts/run_kvpress_benchmark_sweep.py`.
+4. Saves outputs under the shared Drive results directory.
+
+The generated temporary configs follow this pattern:
+
+- `configs/benchmark_sweeps.assignment_1.yaml`
+- `configs/benchmark_sweeps.assignment_2.yaml`
+- `configs/benchmark_sweeps.assignment_3.yaml`
+- `configs/benchmark_sweeps.assignment_4.yaml`
+- `configs/benchmark_sweeps.assignment_5.yaml`
+
+## Methods Configuration
+
+Method definitions live in:
+
+- [`configs/methods.yaml`](./configs/methods.yaml)
+
+That file declares the supported KV-cache strategies and their parameters, including:
+
+- baseline no-compression execution
+- KVPress press-based methods
+- quantized cache options
+- nested and layerwise compression variants
+
+The notebook currently uses a subset of those declared methods, especially:
+
+- `no_compression`
+- `snapkv`
+- `expected_attention`
+- `knorm`
+- `tova`
+- `streaming_llm`
 
 ## Outputs
 
-- `results/raw/*.csv`: one row per scenario/method/budget/context-length/repeat run. Includes latency, throughput, peak GPU memory when available, quality score, generated text, and any error message.
-- `results/summary/*.csv`: grouped averages and standard deviations by scenario, method, budget, and context length.
-- `results/plots/*.png`: score-vs-budget, latency-vs-budget, and memory-vs-budget plots split by scenario.
-- `results/summary/recommendations.csv`: scenario-level recommendations with `best_for_memory`, `best_for_latency`, and `best_balanced`.
-- `results/benchmark_eval/<run>/predictions.csv`: benchmark predictions using the same output shape expected by KVPress's benchmark scorers.
-- `results/benchmark_eval/<run>/metrics.json`: dataset-specific metrics calculated from the vendored KVPress benchmark metric modules.
-- `results/benchmark_eval/<run>/run_stats.json`: benchmark runtime telemetry including total runtime, average latency, throughput, and peak GPU memory when available.
-- `results/benchmark_eval/*__summary.csv`: one-row-per-run sweep summary for config-driven benchmark sweeps.
+The notebook writes benchmark outputs into a shared Google Drive directory, typically:
 
-## Notes and TODOs
+```text
+/content/drive/MyDrive/KVCompass/benchmark_eval
+```
 
-- The execution path is real KVPress: methods instantiate actual KVPress press classes and run through `KVPressTextGenerationPipeline`.
-- The built-in workloads are lightweight prompt generators in `src/kvpress_eval/scenarios.py`, not benchmark datasets yet. They are intended as clean placeholders so the package runs before you integrate external benchmarks.
-- For real benchmark metrics, use `scripts/run_kvpress_benchmark_eval.py`, which vendors KVPress's benchmark metric code from the GitHub repo and evaluates against the same benchmark dataset identifiers used there.
-- If you want one command to run a matrix of methods and budgets, define scenarios in `configs/benchmark_sweeps.yaml` and use `scripts/run_kvpress_benchmark_sweep.py`. The sweep runner reuses the loaded model across runs to reduce overhead.
-- `quant_4bit` depends on the configured quantized cache backend (`quanto` by default). If the backend is missing in your environment, the framework records an error row instead of crashing the full sweep.
-- Quality scoring is intentionally simple for now: it checks whether the expected answer appears in the generated text. Replacing this with benchmark-specific scoring is the next natural extension point.
+Important generated artifacts include:
+
+- `assignment_1__summary.csv`
+- `assignment_2__summary.csv`
+- `assignment_3__summary.csv`
+- `assignment_4__summary.csv`
+- `assignment_5__summary.csv`
+
+Each benchmark run also produces a dedicated run directory containing:
+
+- `predictions.csv`
+- `metrics.json`
+- `run_stats.json`
+- `config.yaml`
+
+## Analysis Performed In The Notebook
+
+After the sweeps finish, the notebook:
+
+- loads all available assignment summary CSV files
+- combines them into one dataframe
+- reads each run's `metrics.json`
+- computes average quality values
+- builds a leaderboard
+- pivots results into a scenario-by-method matrix
+- generates bar charts for quality, latency, and memory
+- creates simple recommendation tables
+- explores task-level and task-category-level benchmark metrics
+
+## Supported Scripts
+
+Even though the notebook is the main interface, the repo also includes standalone scripts:
+
+- `scripts/run_kvpress_benchmark_sweep.py`: run a benchmark sweep from YAML
+- `scripts/run_kvpress_benchmark_eval.py`: run one benchmark evaluation slice
+- `scripts/run_kvpress_eval.py`: run the non-benchmark synthetic scenario pipeline
+- `scripts/run_budget_sweep.py`: run broader synthetic workload sweeps
+- `scripts/aggregate_results.py`: aggregate raw CSV outputs
+- `scripts/make_plots.py`: generate plots from raw results
+- `scripts/make_recommendations.py`: create summary recommendations
+
+For the current notebook workflow, `run_kvpress_benchmark_sweep.py` is the critical script.
+
+## Limitations And Notes
+
+- The notebook is Colab-specific as written.
+- Benchmark data is pulled from Hugging Face at runtime.
+- Model weights are also pulled at runtime.
+- A GPU runtime is strongly recommended for practical execution time.
+- The repo includes code paths that are not used by the notebook, especially the synthetic scenario evaluation pipeline.
+- `src/kvpress_eval/compat.py` applies compatibility patches so KVPress works with newer Transformers cache behavior.
+- Later notebook visualizations require `seaborn`, which is not currently declared as a dependency.
+
+## Reproducibility Notes
+
+To reproduce notebook results reliably, keep the following consistent:
+
+- Colab runtime type
+- selected model name
+- `HF_TOKEN` access
+- fraction value used in the notebook
+- task prefixes per assignment
+- benchmark `data_dir` values such as `4096` and `8192`
+- method list and budget list
+- branch checked out by the setup cell
+
+## Troubleshooting
+
+### Hugging Face auth errors
+
+Check that:
+
+- `HF_TOKEN` exists in Colab secrets
+- the token has permission to access the selected model
+- you are using the correct model name
+
+### Missing benchmark outputs
+
+Check that:
+
+- the sweep cells completed successfully
+- Google Drive is mounted
+- the shared results directory exists
+- the summary CSV files were written under `benchmark_eval/`
+
+### Plotting cells fail
+
+If the later analysis cells fail on `seaborn`, install it in the runtime before rerunning the plotting cells.
+
+### Out-of-memory or slow execution
+
+Try:
+
+- a smaller model
+- a smaller `FRACTION`
+- fewer methods per assignment
+- fewer benchmark scenarios
+
