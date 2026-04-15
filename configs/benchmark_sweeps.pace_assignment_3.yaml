@@ -1,0 +1,34 @@
+sweep:
+  name: assignment_3
+  model: Qwen/Qwen2.5-1.5B-Instruct
+  device: auto
+  torch_dtype: bfloat16
+  methods_config_path: configs/methods.yaml
+  output_dir: results/benchmark_eval
+  seed: 42
+  verbose: false
+  scenarios:
+  - name: multi_hop_tracing_4k
+    dataset: ruler
+    data_dir: '4096'
+    task_prefixes: &id001
+    - vt
+    fraction: 1.0
+    methods: &id002
+    - snapkv
+    - expected_attention
+    - knorm
+    - tova
+    - streaming_llm
+    budgets:
+      default:
+      - 0.5
+  - name: multi_hop_tracing_8k
+    dataset: ruler
+    data_dir: '8192'
+    task_prefixes: *id001
+    fraction: 1.0
+    methods: *id002
+    budgets:
+      default:
+      - 0.5

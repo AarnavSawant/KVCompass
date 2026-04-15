@@ -1,0 +1,156 @@
+sweep:
+  name: pace_full_matrix
+  model: Qwen/Qwen2.5-1.5B-Instruct
+  device: auto
+  torch_dtype: bfloat16
+  methods_config_path: configs/methods.yaml
+  output_dir: results/benchmark_eval
+  seed: 42
+  verbose: false
+  scenarios:
+  - name: needle_in_a_haystack_4k
+    dataset: ruler
+    data_dir: '4096'
+    task_prefixes:
+    - niah
+    fraction: 1.0
+    methods:
+    - no_compression
+    - snapkv
+    - expected_attention
+    - knorm
+    - tova
+    - streaming_llm
+    budgets:
+      no_compression:
+      - 1.0
+      default:
+      - 0.5
+  - name: needle_in_a_haystack_8k
+    dataset: ruler
+    data_dir: '8192'
+    task_prefixes:
+    - niah
+    fraction: 1.0
+    methods:
+    - no_compression
+    - snapkv
+    - expected_attention
+    - knorm
+    - tova
+    - streaming_llm
+    budgets:
+      no_compression:
+      - 1.0
+      default:
+      - 0.5
+  - name: question_answering_4k
+    dataset: ruler
+    data_dir: '4096'
+    task_prefixes:
+    - qa
+    fraction: 1.0
+    methods:
+    - no_compression
+    - snapkv
+    - expected_attention
+    - knorm
+    - tova
+    - streaming_llm
+    budgets:
+      no_compression:
+      - 1.0
+      default:
+      - 0.5
+  - name: question_answering_8k
+    dataset: ruler
+    data_dir: '8192'
+    task_prefixes:
+    - qa
+    fraction: 1.0
+    methods:
+    - no_compression
+    - snapkv
+    - expected_attention
+    - knorm
+    - tova
+    - streaming_llm
+    budgets:
+      no_compression:
+      - 1.0
+      default:
+      - 0.5
+  - name: multi_hop_tracing_4k
+    dataset: ruler
+    data_dir: '4096'
+    task_prefixes:
+    - vt
+    fraction: 1.0
+    methods:
+    - no_compression
+    - snapkv
+    - expected_attention
+    - knorm
+    - tova
+    - streaming_llm
+    budgets:
+      no_compression:
+      - 1.0
+      default:
+      - 0.5
+  - name: multi_hop_tracing_8k
+    dataset: ruler
+    data_dir: '8192'
+    task_prefixes:
+    - vt
+    fraction: 1.0
+    methods:
+    - no_compression
+    - snapkv
+    - expected_attention
+    - knorm
+    - tova
+    - streaming_llm
+    budgets:
+      no_compression:
+      - 1.0
+      default:
+      - 0.5
+  - name: aggregation_4k
+    dataset: ruler
+    data_dir: '4096'
+    task_prefixes:
+    - cwe
+    - fwe
+    fraction: 1.0
+    methods:
+    - no_compression
+    - snapkv
+    - expected_attention
+    - knorm
+    - tova
+    - streaming_llm
+    budgets:
+      no_compression:
+      - 1.0
+      default:
+      - 0.5
+  - name: aggregation_8k
+    dataset: ruler
+    data_dir: '8192'
+    task_prefixes:
+    - cwe
+    - fwe
+    fraction: 1.0
+    methods:
+    - no_compression
+    - snapkv
+    - expected_attention
+    - knorm
+    - tova
+    - streaming_llm
+    budgets:
+      no_compression:
+      - 1.0
+      default:
+      - 0.5

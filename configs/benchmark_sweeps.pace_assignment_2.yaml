@@ -1,0 +1,34 @@
+sweep:
+  name: assignment_2
+  model: Qwen/Qwen2.5-1.5B-Instruct
+  device: auto
+  torch_dtype: bfloat16
+  methods_config_path: configs/methods.yaml
+  output_dir: results/benchmark_eval
+  seed: 42
+  verbose: false
+  scenarios:
+  - name: question_answering_4k
+    dataset: ruler
+    data_dir: '4096'
+    task_prefixes: &id001
+    - qa
+    fraction: 1.0
+    methods: &id002
+    - snapkv
+    - expected_attention
+    - knorm
+    - tova
+    - streaming_llm
+    budgets:
+      default:
+      - 0.5
+  - name: question_answering_8k
+    dataset: ruler
+    data_dir: '8192'
+    task_prefixes: *id001
+    fraction: 1.0
+    methods: *id002
+    budgets:
+      default:
+      - 0.5

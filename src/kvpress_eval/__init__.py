@@ -2,6 +2,7 @@
 
 __all__ = [
     "aggregate_results",
+    "build_benchmark_report",
     "build_recommendations",
     "create_plots",
     "run_evaluation",
@@ -13,6 +14,10 @@ def __getattr__(name: str):
         from .aggregate import aggregate_results
 
         return aggregate_results
+    if name == "build_benchmark_report":
+        from .benchmark_reporting import build_benchmark_report
+
+        return build_benchmark_report
     if name == "build_recommendations":
         from .recommendations import build_recommendations
 

@@ -1,0 +1,100 @@
+sweep:
+  name: assignment_4
+  model: Qwen/Qwen2.5-1.5B-Instruct
+  device: auto
+  torch_dtype: bfloat16
+  methods_config_path: configs/methods.yaml
+  output_dir: results/benchmark_eval
+  seed: 42
+  verbose: false
+  scenarios:
+  - name: niah_4k_baseline
+    dataset: ruler
+    data_dir: '4096'
+    task_prefixes:
+    - niah
+    fraction: 1.0
+    methods:
+    - no_compression
+    budgets:
+      no_compression:
+      - 1.0
+  - name: niah_8k_baseline
+    dataset: ruler
+    data_dir: '8192'
+    task_prefixes:
+    - niah
+    fraction: 1.0
+    methods:
+    - no_compression
+    budgets:
+      no_compression:
+      - 1.0
+  - name: qa_4k_baseline
+    dataset: ruler
+    data_dir: '4096'
+    task_prefixes:
+    - qa
+    fraction: 1.0
+    methods:
+    - no_compression
+    budgets:
+      no_compression:
+      - 1.0
+  - name: qa_8k_baseline
+    dataset: ruler
+    data_dir: '8192'
+    task_prefixes:
+    - qa
+    fraction: 1.0
+    methods:
+    - no_compression
+    budgets:
+      no_compression:
+      - 1.0
+  - name: vt_4k_baseline
+    dataset: ruler
+    data_dir: '4096'
+    task_prefixes:
+    - vt
+    fraction: 1.0
+    methods:
+    - no_compression
+    budgets:
+      no_compression:
+      - 1.0
+  - name: vt_8k_baseline
+    dataset: ruler
+    data_dir: '8192'
+    task_prefixes:
+    - vt
+    fraction: 1.0
+    methods:
+    - no_compression
+    budgets:
+      no_compression:
+      - 1.0
+  - name: aggregation_4k_baseline
+    dataset: ruler
+    data_dir: '4096'
+    task_prefixes:
+    - cwe
+    - fwe
+    fraction: 1.0
+    methods:
+    - no_compression
+    budgets:
+      no_compression:
+      - 1.0
+  - name: aggregation_8k_baseline
+    dataset: ruler
+    data_dir: '8192'
+    task_prefixes:
+    - cwe
+    - fwe
+    fraction: 1.0
+    methods:
+    - no_compression
+    budgets:
+      no_compression:
+      - 1.0

@@ -1,0 +1,50 @@
+sweep:
+  name: pace_budget_sensitivity_8k
+  model: Qwen/Qwen2.5-1.5B-Instruct
+  device: auto
+  torch_dtype: bfloat16
+  methods_config_path: configs/methods.yaml
+  output_dir: results/benchmark_eval
+  seed: 42
+  verbose: false
+  scenarios:
+  - name: needle_in_a_haystack_8k_budget_sensitivity
+    dataset: ruler
+    data_dir: '8192'
+    task_prefixes:
+    - niah
+    fraction: 1.0
+    methods:
+    - no_compression
+    - snapkv
+    - expected_attention
+    - knorm
+    - tova
+    - streaming_llm
+    budgets:
+      no_compression:
+      - 1.0
+      default:
+      - 0.75
+      - 0.5
+      - 0.25
+  - name: question_answering_8k_budget_sensitivity
+    dataset: ruler
+    data_dir: '8192'
+    task_prefixes:
+    - qa
+    fraction: 1.0
+    methods:
+    - no_compression
+    - snapkv
+    - expected_attention
+    - knorm
+    - tova
+    - streaming_llm
+    budgets:
+      no_compression:
+      - 1.0
+      default:
+      - 0.75
+      - 0.5
+      - 0.25
