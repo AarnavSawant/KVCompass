@@ -6,6 +6,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESULTS_DIR="${RESULTS_DIR:-${ROOT_DIR}/results/benchmark_eval}"
 FRACTION="${FRACTION:-1.0}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+SBATCH_TIME="${SBATCH_TIME:-12:00:00}"
+SBATCH_MEM="${SBATCH_MEM:-64G}"
+SBATCH_CPUS="${SBATCH_CPUS:-8}"
+SBATCH_GRES="${SBATCH_GRES:-gpu:1}"
+SBATCH_PARTITION="${SBATCH_PARTITION:-}"
+SBATCH_ACCOUNT="${SBATCH_ACCOUNT:-}"
 
 usage() {
   cat <<EOF
@@ -28,9 +34,20 @@ submit_job() {
   local config_path="$1"
   local label="$2"
   echo "Submitting ${label} using ${config_path}"
-  sbatch \
+  local -a sbatch_args=(
+    "--time=${SBATCH_TIME}"
+    "--mem=${SBATCH_MEM}"
+    "--cpus-per-task=${SBATCH_CPUS}"
+    "--gres=${SBATCH_GRES}"
     --export=ALL,REPO_ROOT="${ROOT_DIR}",CONFIG_PATH="${config_path}",RESULTS_DIR="${RESULTS_DIR}",LOG_LABEL="${label}",FRACTION="${FRACTION}",PYTHON_BIN="${PYTHON_BIN}" \
-    scripts/pace_sweep.sbatch
+  )
+  if [[ -n "${SBATCH_PARTITION}" ]]; then
+    sbatch_args+=("--partition=${SBATCH_PARTITION}")
+  fi
+  if [[ -n "${SBATCH_ACCOUNT}" ]]; then
+    sbatch_args+=("--account=${SBATCH_ACCOUNT}")
+  fi
+  sbatch "${sbatch_args[@]}" scripts/pace_sweep.sbatch
 }
 
 case "${MODE}" in

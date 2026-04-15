@@ -135,6 +135,33 @@ def _peak_gpu_memory_mb(torch_module) -> float | None:
     return torch_module.cuda.max_memory_allocated() / (1024**2)
 
 
+def _progress_interval(total_examples: int) -> int:
+    if total_examples <= 20:
+        return 1
+    if total_examples <= 100:
+        return 5
+    return 10
+
+
+def _log_example_progress(
+    *,
+    config: BenchmarkConfig,
+    processed_examples: int,
+    total_examples: int,
+    start_time: float,
+) -> None:
+    elapsed = time.perf_counter() - start_time
+    LOGGER.info(
+        "[%s | %s | budget=%.2f] evaluated %s/%s examples in %.1fs",
+        config.scenario_name or config.dataset,
+        config.method,
+        config.budget,
+        processed_examples,
+        total_examples,
+        elapsed,
+    )
+
+
 def _execute_benchmark_dataframe(
     *,
     df: pd.DataFrame,
@@ -162,10 +189,11 @@ def _execute_benchmark_dataframe(
     total_output_tokens = 0
     inference_start = time.perf_counter()
     peak_memory_overall_mb: float | None = None
+    progress_every = _progress_interval(total_examples)
 
     if isinstance(runtime.press, DecodingPress):
         iterator = df.iterrows()
-        for index, row in iterator:
+        for processed_count, (index, row) in enumerate(iterator, start=1):
             _reset_gpu_stats(torch_module)
             start = time.perf_counter()
             output = pipeline(
@@ -196,9 +224,17 @@ def _execute_benchmark_dataframe(
             df.loc[index, "peak_gpu_memory_mb"] = peak_memory
             df.loc[index, "output_tokens"] = output_tokens
             df.loc[index, "input_tokens"] = input_tokens
+            if processed_count % progress_every == 0 or processed_count == total_examples:
+                _log_example_progress(
+                    config=config,
+                    processed_examples=processed_count,
+                    total_examples=total_examples,
+                    start_time=inference_start,
+                )
     else:
         grouped = df.groupby("context", sort=False)
-        for context, df_group in grouped:
+        processed_examples = 0
+        for group_index, (context, df_group) in enumerate(grouped, start=1):
             _reset_gpu_stats(torch_module)
             start = time.perf_counter()
             output = pipeline(
@@ -231,6 +267,18 @@ def _execute_benchmark_dataframe(
             df.loc[df_group.index, "peak_gpu_memory_mb"] = peak_memory
             df.loc[df_group.index, "output_tokens"] = output_tokens_list
             df.loc[df_group.index, "input_tokens"] = input_tokens
+            processed_examples += len(df_group)
+            if (
+                processed_examples % progress_every == 0
+                or processed_examples >= total_examples
+                or group_index == len(grouped)
+            ):
+                _log_example_progress(
+                    config=config,
+                    processed_examples=min(processed_examples, total_examples),
+                    total_examples=total_examples,
+                    start_time=inference_start,
+                )
 
     scorer = get_scorer(config.dataset)
     metrics = scorer(df)

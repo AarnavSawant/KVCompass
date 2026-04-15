@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,8 @@ from .compat import apply_kvpress_compat_patches
 from .config import get_method_configs
 from .methods import build_method_runtime
 from .runner import load_model_bundle
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -111,7 +114,17 @@ def run_benchmark_sweep(config_path: str | Path) -> SweepArtifacts:
     sweep_name = sweep.get("name", "benchmark_sweep")
     summary_csv = output_dir / f"{sweep_name}__summary.csv"
 
-    for run in runs:
+    for run_index, run in enumerate(runs, start=1):
+        LOGGER.info(
+            "Starting run %s/%s: scenario=%s dataset=%s data_dir=%s method=%s budget=%.2f",
+            run_index,
+            len(runs),
+            run.scenario_name or "",
+            run.dataset,
+            run.data_dir or "",
+            run.method,
+            run.budget,
+        )
         runtime = build_method_runtime(
             methods[run.method],
             budget=run.budget,
@@ -163,6 +176,15 @@ def run_benchmark_sweep(config_path: str | Path) -> SweepArtifacts:
             }
         )
         _write_summary_csv(summary_csv, summary_rows)
+        LOGGER.info(
+            "Finished run %s/%s: scenario=%s method=%s budget=%.2f summary_rows=%s",
+            run_index,
+            len(runs),
+            run.scenario_name or "",
+            run.method,
+            run.budget,
+            len(summary_rows),
+        )
 
     _write_summary_csv(summary_csv, summary_rows)
     return SweepArtifacts(summary_csv=summary_csv, run_count=len(summary_rows))

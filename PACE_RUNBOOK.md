@@ -55,6 +55,23 @@ python3 scripts/write_pace_configs.py \
 bash scripts/submit_pace_jobs.sh matrix
 ```
 
+If your PACE queue has tighter limits, override them at submit time:
+
+```bash
+SBATCH_TIME=12:00:00 \
+SBATCH_MEM=64G \
+SBATCH_CPUS=8 \
+SBATCH_GRES=gpu:1 \
+bash scripts/submit_pace_jobs.sh matrix
+```
+
+If your cluster requires them, you can also set:
+
+```bash
+SBATCH_PARTITION=<partition-name>
+SBATCH_ACCOUNT=<account-name>
+```
+
 ### Budget sensitivity
 
 ```bash
