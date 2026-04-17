@@ -136,6 +136,44 @@ def _peak_gpu_memory_mb(torch_module) -> float | None:
     return torch_module.cuda.max_memory_allocated() / (1024**2)
 
 
+def _progress_interval(total_examples: int) -> int:
+    if total_examples <= 20:
+        return 1
+    if total_examples <= 100:
+        return 5
+    return 10
+
+
+def _log_example_progress(
+    *,
+    config: BenchmarkConfig,
+    processed_examples: int,
+    total_examples: int,
+    example_latency: float,
+    output_tokens: int,
+    peak_memory_mb: float | None,
+    start_time: float,
+) -> None:
+    elapsed = time.perf_counter() - start_time
+    avg_seconds_per_example = elapsed / processed_examples if processed_examples else 0.0
+    memory_text = f"{peak_memory_mb:.1f} MB" if peak_memory_mb is not None else "n/a"
+    LOGGER.info(
+        "[%s | %s | budget=%.2f | kv_cache=%s] evaluated %s/%s examples "
+        "last=%.2fs avg=%.2fs/example output_tokens=%s peak_gpu=%s elapsed=%.1fs",
+        config.scenario_name or config.dataset,
+        config.method,
+        config.budget,
+        config.use_kv_cache,
+        processed_examples,
+        total_examples,
+        example_latency,
+        avg_seconds_per_example,
+        output_tokens,
+        memory_text,
+        elapsed,
+    )
+
+
 def _generate_without_kv_cache(
     *,
     pipeline,
@@ -206,13 +244,14 @@ def _execute_benchmark_dataframe(
     total_output_tokens = 0
     inference_start = time.perf_counter()
     peak_memory_overall_mb: float | None = None
+    progress_every = _progress_interval(total_examples)
 
     if not config.use_kv_cache and (runtime.press is not None or runtime.cache is not None):
         raise ValueError("No-KV-cache runs must use a method without KV compression, such as 'no_compression'.")
 
     if isinstance(runtime.press, DecodingPress):
         iterator = df.iterrows()
-        for index, row in iterator:
+        for processed_count, (index, row) in enumerate(iterator, start=1):
             _reset_gpu_stats(torch_module)
             start = time.perf_counter()
             if config.use_kv_cache:
@@ -254,9 +293,20 @@ def _execute_benchmark_dataframe(
             df.loc[index, "peak_gpu_memory_mb"] = peak_memory
             df.loc[index, "output_tokens"] = output_tokens
             df.loc[index, "input_tokens"] = input_tokens
+            if processed_count % progress_every == 0 or processed_count == total_examples:
+                _log_example_progress(
+                    config=config,
+                    processed_examples=processed_count,
+                    total_examples=total_examples,
+                    example_latency=latency,
+                    output_tokens=output_tokens,
+                    peak_memory_mb=peak_memory,
+                    start_time=inference_start,
+                )
     else:
         grouped = df.groupby("context", sort=False)
-        for context, df_group in grouped:
+        processed_examples = 0
+        for group_index, (context, df_group) in enumerate(grouped, start=1):
             _reset_gpu_stats(torch_module)
             start = time.perf_counter()
             max_new_tokens = config.max_new_tokens or int(df_group["max_new_tokens"].iloc[0])
@@ -302,6 +352,21 @@ def _execute_benchmark_dataframe(
             df.loc[df_group.index, "peak_gpu_memory_mb"] = peak_memory
             df.loc[df_group.index, "output_tokens"] = output_tokens_list
             df.loc[df_group.index, "input_tokens"] = input_tokens
+            processed_examples += len(df_group)
+            if (
+                processed_examples % progress_every == 0
+                or processed_examples >= total_examples
+                or group_index == len(grouped)
+            ):
+                _log_example_progress(
+                    config=config,
+                    processed_examples=min(processed_examples, total_examples),
+                    total_examples=total_examples,
+                    example_latency=latency / max(len(df_group), 1),
+                    output_tokens=sum(output_tokens_list),
+                    peak_memory_mb=peak_memory,
+                    start_time=inference_start,
+                )
 
     scorer = get_scorer(config.dataset)
     metrics = scorer(df)
