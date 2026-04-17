@@ -37,6 +37,16 @@ def _write_summary_csv(summary_csv: Path, summary_rows: list[dict[str, Any]]) ->
             writer.writerow(row)
 
 
+def _as_bool(value: Any, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off"}
+    return bool(value)
+
+
 def load_sweep_config(path: str | Path) -> dict[str, Any]:
     with Path(path).open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
@@ -55,6 +65,7 @@ def _expand_runs(sweep: dict[str, Any]) -> list[BenchmarkConfig]:
         "methods_config_path": sweep.get("methods_config_path", "configs/methods.yaml"),
         "seed": int(sweep.get("seed", 42)),
         "verbose": bool(sweep.get("verbose", False)),
+        "use_kv_cache": _as_bool(sweep.get("use_kv_cache"), default=True),
     }
     for scenario in sweep.get("scenarios", []):
         methods = scenario.get("methods", [])
@@ -78,6 +89,7 @@ def _expand_runs(sweep: dict[str, Any]) -> list[BenchmarkConfig]:
                         needle_depth=scenario.get("needle_depth"),
                         device=base["device"],
                         torch_dtype=base["torch_dtype"],
+                        use_kv_cache=_as_bool(scenario.get("use_kv_cache"), default=base["use_kv_cache"]),
                         output_dir=base["output_dir"],
                         methods_config_path=base["methods_config_path"],
                         seed=base["seed"],
@@ -155,6 +167,7 @@ def run_benchmark_sweep(config_path: str | Path) -> SweepArtifacts:
                 "model": run.model,
                 "method": run.method,
                 "budget": run.budget,
+                "use_kv_cache": run.use_kv_cache,
                 "predictions_path": str(predictions_path),
                 "metrics_path": str(metrics_path),
                 "avg_latency_seconds": run_stats.get("avg_latency_seconds"),

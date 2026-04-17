@@ -39,6 +39,7 @@ class BenchmarkConfig:
     needle_depth: int | None = None
     device: str = "auto"
     torch_dtype: str = "auto"
+    use_kv_cache: bool = True
     output_dir: str = "results/benchmark_eval"
     methods_config_path: str = "configs/methods.yaml"
     seed: int = 42
@@ -135,6 +136,48 @@ def _peak_gpu_memory_mb(torch_module) -> float | None:
     return torch_module.cuda.max_memory_allocated() / (1024**2)
 
 
+def _generate_without_kv_cache(
+    *,
+    pipeline,
+    context: str,
+    questions: list[str],
+    answer_prefix: str,
+    max_new_tokens: int,
+    max_context_length: int | None,
+    torch_module,
+) -> list[str]:
+    preprocess_kwargs = {
+        "questions": questions,
+        "answer_prefix": answer_prefix,
+        "max_context_length": max_context_length
+        if max_context_length is not None
+        else min(pipeline.tokenizer.model_max_length, int(1e10)),
+    }
+    input_tensors = pipeline.preprocess(context, **preprocess_kwargs)
+    context_ids = input_tensors["context_ids"].to(pipeline.model.device)
+    answers: list[str] = []
+
+    for question_ids in input_tensors["questions_ids"]:
+        prompt_ids = torch_module.cat([context_ids, question_ids.to(pipeline.model.device)], dim=1)
+        attention_mask = torch_module.ones_like(prompt_ids)
+        generate_kwargs = {
+            "input_ids": prompt_ids,
+            "attention_mask": attention_mask,
+            "max_new_tokens": max_new_tokens,
+            "use_cache": False,
+            "do_sample": False,
+        }
+        if pipeline.tokenizer.eos_token_id is not None:
+            generate_kwargs["pad_token_id"] = pipeline.tokenizer.eos_token_id
+
+        with torch_module.no_grad():
+            output_ids = pipeline.model.generate(**generate_kwargs)
+        generated_ids = output_ids[0, prompt_ids.shape[1] :]
+        answers.append(str(pipeline.tokenizer.decode(generated_ids, skip_special_tokens=True)))
+
+    return answers
+
+
 def _execute_benchmark_dataframe(
     *,
     df: pd.DataFrame,
@@ -151,6 +194,7 @@ def _execute_benchmark_dataframe(
     df["compression_ratio"] = runtime.compression_ratio
     df["budget"] = config.budget
     df["method"] = config.method
+    df["use_kv_cache"] = config.use_kv_cache
     df["model_name"] = config.model
     df["latency_seconds"] = None
     df["throughput_tokens_per_second"] = None
@@ -163,22 +207,36 @@ def _execute_benchmark_dataframe(
     inference_start = time.perf_counter()
     peak_memory_overall_mb: float | None = None
 
+    if not config.use_kv_cache and (runtime.press is not None or runtime.cache is not None):
+        raise ValueError("No-KV-cache runs must use a method without KV compression, such as 'no_compression'.")
+
     if isinstance(runtime.press, DecodingPress):
         iterator = df.iterrows()
         for index, row in iterator:
             _reset_gpu_stats(torch_module)
             start = time.perf_counter()
-            output = pipeline(
-                row["context"],
-                question=row["question"],
-                answer_prefix=row.get("answer_prefix", ""),
-                press=runtime.press,
-                cache=runtime.cache,
-                max_new_tokens=config.max_new_tokens or row.get("max_new_tokens", 32),
-                max_context_length=config.max_context_length,
-            )
+            if config.use_kv_cache:
+                output = pipeline(
+                    row["context"],
+                    question=row["question"],
+                    answer_prefix=row.get("answer_prefix", ""),
+                    press=runtime.press,
+                    cache=runtime.cache,
+                    max_new_tokens=config.max_new_tokens or row.get("max_new_tokens", 32),
+                    max_context_length=config.max_context_length,
+                )
+                answer = _normalize_output(output, multi=False)[0]
+            else:
+                answer = _generate_without_kv_cache(
+                    pipeline=pipeline,
+                    context=row["context"],
+                    questions=[row["question"]],
+                    answer_prefix=row.get("answer_prefix", ""),
+                    max_new_tokens=config.max_new_tokens or row.get("max_new_tokens", 32),
+                    max_context_length=config.max_context_length,
+                    torch_module=torch_module,
+                )[0]
             latency = time.perf_counter() - start
-            answer = _normalize_output(output, multi=False)[0]
             output_tokens = len(tokenizer.encode(answer, add_special_tokens=False))
             input_tokens = len(tokenizer.encode(row["context"], add_special_tokens=False))
             peak_memory = _peak_gpu_memory_mb(torch_module)
@@ -201,17 +259,30 @@ def _execute_benchmark_dataframe(
         for context, df_group in grouped:
             _reset_gpu_stats(torch_module)
             start = time.perf_counter()
-            output = pipeline(
-                context,
-                questions=df_group["question"].tolist(),
-                answer_prefix=df_group["answer_prefix"].iloc[0] if "answer_prefix" in df_group.columns else "",
-                press=runtime.press,
-                cache=runtime.cache,
-                max_new_tokens=config.max_new_tokens or int(df_group["max_new_tokens"].iloc[0]),
-                max_context_length=config.max_context_length,
-            )
+            max_new_tokens = config.max_new_tokens or int(df_group["max_new_tokens"].iloc[0])
+            answer_prefix = df_group["answer_prefix"].iloc[0] if "answer_prefix" in df_group.columns else ""
+            if config.use_kv_cache:
+                output = pipeline(
+                    context,
+                    questions=df_group["question"].tolist(),
+                    answer_prefix=answer_prefix,
+                    press=runtime.press,
+                    cache=runtime.cache,
+                    max_new_tokens=max_new_tokens,
+                    max_context_length=config.max_context_length,
+                )
+                answers = _normalize_output(output, multi=True)
+            else:
+                answers = _generate_without_kv_cache(
+                    pipeline=pipeline,
+                    context=context,
+                    questions=df_group["question"].tolist(),
+                    answer_prefix=answer_prefix,
+                    max_new_tokens=max_new_tokens,
+                    max_context_length=config.max_context_length,
+                    torch_module=torch_module,
+                )
             latency = time.perf_counter() - start
-            answers = _normalize_output(output, multi=True)
             peak_memory = _peak_gpu_memory_mb(torch_module)
             output_tokens_list = [len(tokenizer.encode(answer, add_special_tokens=False)) for answer in answers]
             input_tokens = len(tokenizer.encode(context, add_special_tokens=False))
@@ -245,6 +316,7 @@ def _execute_benchmark_dataframe(
         "method": config.method,
         "budget": config.budget,
         "compression_ratio": runtime.compression_ratio,
+        "use_kv_cache": config.use_kv_cache,
         "examples": total_examples,
         "total_runtime_seconds": total_runtime_seconds,
         "avg_seconds_per_example": total_runtime_seconds / total_examples if total_examples else None,
@@ -265,16 +337,17 @@ def _save_benchmark_outputs(
 ) -> tuple[Path, Path]:
     output_root = Path(config.output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
-    run_name = "__".join(
-        [part for part in [
-            config.scenario_name,
-            config.dataset,
-            str(config.data_dir or ""),
-            config.model.replace("/", "--"),
-            config.method,
-            f"budget{config.budget:.2f}",
-        ] if part]
-    ).strip("_")
+    run_name_parts = [
+        config.scenario_name,
+        config.dataset,
+        str(config.data_dir or ""),
+        config.model.replace("/", "--"),
+        config.method,
+        f"budget{config.budget:.2f}",
+    ]
+    if not config.use_kv_cache:
+        run_name_parts.append("no_kv_cache")
+    run_name = "__".join([part for part in run_name_parts if part]).strip("_")
     run_dir = output_root / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
 

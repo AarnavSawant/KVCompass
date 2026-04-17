@@ -30,6 +30,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--needle-depth", type=int, default=None)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--torch-dtype", default="auto")
+    parser.add_argument(
+        "--no-kv-cache",
+        action="store_true",
+        help="Disable the Transformer KV cache and generate with use_cache=False.",
+    )
     parser.add_argument("--methods-config", default=PROJECT_ROOT / "configs" / "methods.yaml")
     parser.add_argument("--output-dir", default=PROJECT_ROOT / "results" / "benchmark_eval")
     parser.add_argument("--seed", type=int, default=42)
@@ -54,6 +59,7 @@ def main() -> int:
         needle_depth=args.needle_depth,
         device=args.device,
         torch_dtype=args.torch_dtype,
+        use_kv_cache=not args.no_kv_cache,
         output_dir=str(resolve_path(args.output_dir)),
         methods_config_path=str(resolve_path(args.methods_config)),
         seed=args.seed,
