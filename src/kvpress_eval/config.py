@@ -20,11 +20,3 @@ def get_method_configs(path: str | Path) -> list[dict[str, Any]]:
     if not isinstance(methods, list):
         raise ValueError("methods.yaml must define a top-level 'methods' list")
     return methods
-
-
-def get_scenario_configs(path: str | Path) -> list[dict[str, Any]]:
-    data = load_yaml(path)
-    scenarios = data.get("scenarios", [])
-    if not isinstance(scenarios, list):
-        raise ValueError("scenarios.yaml must define a top-level 'scenarios' list")
-    return scenarios

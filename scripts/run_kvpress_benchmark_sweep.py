@@ -18,14 +18,14 @@ def resolve_path(value: str | Path) -> Path:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a config-driven KVPress benchmark sweep.")
-    parser.add_argument("--config", default=PROJECT_ROOT / "configs" / "benchmark_sweeps.yaml")
+    parser.add_argument("--config", required=True)
     return parser.parse_args()
 
 
 def main() -> int:
+    args = parse_args()
     from kvpress_eval.benchmark_sweep import run_benchmark_sweep
 
-    args = parse_args()
     artifacts = run_benchmark_sweep(resolve_path(args.config))
     print(f"Completed {artifacts.run_count} benchmark runs")
     print(f"Saved summary to {artifacts.summary_csv}")

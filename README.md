@@ -79,32 +79,19 @@ KVCompass/
 ├── pyproject.toml
 ├── requirements.txt
 ├── configs/
-│   ├── benchmark_sweeps.yaml
-│   ├── methods.yaml
-│   └── scenarios.yaml
+│   └── methods.yaml
 ├── scripts/
-│   ├── aggregate_results.py
-│   ├── make_plots.py
-│   ├── make_recommendations.py
-│   ├── run_budget_sweep.py
 │   ├── run_kvpress_benchmark_eval.py
-│   ├── run_kvpress_benchmark_sweep.py
-│   └── run_kvpress_eval.py
+│   └── run_kvpress_benchmark_sweep.py
 ├── src/
 │   └── kvpress_eval/
-│       ├── aggregate.py
 │       ├── benchmark_eval.py
 │       ├── benchmark_registry.py
 │       ├── benchmark_sweep.py
 │       ├── compat.py
 │       ├── config.py
-│       ├── evaluate.py
-│       ├── io_utils.py
 │       ├── methods.py
-│       ├── plotting.py
-│       ├── recommendations.py
 │       ├── runner.py
-│       ├── scenarios.py
 │       └── benchmarks/
 └── results/
     ├── benchmark_eval/
@@ -198,8 +185,6 @@ That file declares the supported KV-cache strategies and their parameters, inclu
 
 - baseline no-compression execution
 - KVPress press-based methods
-- quantized cache options
-- nested and layerwise compression variants
 
 The notebook currently uses a subset of those declared methods, especially:
 
@@ -253,13 +238,8 @@ Even though the notebook is the main interface, the repo also includes standalon
 
 - `scripts/run_kvpress_benchmark_sweep.py`: run a benchmark sweep from YAML
 - `scripts/run_kvpress_benchmark_eval.py`: run one benchmark evaluation slice
-- `scripts/run_kvpress_eval.py`: run the non-benchmark synthetic scenario pipeline
-- `scripts/run_budget_sweep.py`: run broader synthetic workload sweeps
-- `scripts/aggregate_results.py`: aggregate raw CSV outputs
-- `scripts/make_plots.py`: generate plots from raw results
-- `scripts/make_recommendations.py`: create summary recommendations
 
-For the current notebook workflow, `run_kvpress_benchmark_sweep.py` is the critical script.
+For the current notebook workflow, `run_kvpress_benchmark_sweep.py` is the critical script, while `run_kvpress_benchmark_eval.py` supports the notebook's optional smoke-test cell.
 
 ## Limitations And Notes
 
@@ -267,7 +247,6 @@ For the current notebook workflow, `run_kvpress_benchmark_sweep.py` is the criti
 - Benchmark data is pulled from Hugging Face at runtime.
 - Model weights are also pulled at runtime.
 - A GPU runtime is strongly recommended for practical execution time.
-- The repo includes code paths that are not used by the notebook, especially the synthetic scenario evaluation pipeline.
 - `src/kvpress_eval/compat.py` applies compatibility patches so KVPress works with newer Transformers cache behavior.
 - Later notebook visualizations require `seaborn`, which is not currently declared as a dependency.
 
@@ -315,4 +294,3 @@ Try:
 - a smaller `FRACTION`
 - fewer methods per assignment
 - fewer benchmark scenarios
-
